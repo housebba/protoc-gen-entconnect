@@ -1,0 +1,38 @@
+{{- /*gotype: entgo.io/contrib/entproto/cmd/protoc-gen-entconnect.methodInput*/ -}}
+{{ define "method_batch_create" }}
+    {{- $idField := .G.FieldMap.ID -}}
+    {{- $varName := $idField.EntField.Name -}}
+    {{- $inputName := .Method.Input.GoIdent.GoName -}}
+    {{- $reqVar := camel .G.EntType.Name -}}
+    requests := req.Msg.GetRequests()
+    if len(requests) > {{ qualify "entgo.io/contrib/entproto" "MaxBatchCreateSize" }}{
+        return nil, connect.NewError(connect.CodeInvalidArgument,
+            fmt.Errorf("batch size cannot be greater than %d", entproto.MaxBatchCreateSize))
+    }
+    bulk := make([]*ent.{{ .G.EntType.Name }}Create, len(requests))
+    for i, req := range requests {
+        {{ $reqVar }} := req.Get{{ .G.EntType.Name }}()
+        var err error
+        bulk[i], err = svc.createBuilder({{ $reqVar }})
+        if err != nil {
+            return nil, err
+        }
+    }
+    res, err := svc.client.{{ .G.EntType.Name }}.CreateBulk(bulk...).Save(ctx)
+    switch {
+        case err == nil:
+            protoList, err := toProto{{ .G.EntType.Name }}List(res)
+            if err != nil {
+                return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("internal error: %w", err))
+            }
+            return connect.NewResponse(&BatchCreate{{ plural .G.EntType.Name }}Response{
+                {{ plural .G.EntType.Name }}: protoList,
+            }), nil
+        case {{ qualify "entgo.io/ent/dialect/sql/sqlgraph" "IsUniqueConstraintError" }}(err):
+            return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("already exists: %w", err))
+        case {{ .G.EntPackage.Ident "IsConstraintError" | ident }}(err):
+            return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid argument: %w", err))
+        default:
+            return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("internal error: %w", err))
+    }
+{{ end }}

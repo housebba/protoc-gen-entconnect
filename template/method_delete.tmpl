@@ -1,0 +1,16 @@
+{{- /*gotype: entgo.io/contrib/entproto/cmd/protoc-gen-entconnect.methodInput*/ -}}
+{{ define "method_delete" }}
+    {{- $idField := .G.FieldMap.ID -}}
+    {{- $varName := $idField.EntField.Name -}}
+    var err error
+    {{- template "field_to_ent" dict "Field" $idField "VarName" $idField.EntField.Name "Ident" (print "req.Msg.Get" $idField.PbStructField "()") }}
+    err = svc.client.{{ .G.EntType.Name }}.DeleteOneID({{ $varName }}).Exec(ctx)
+    switch {
+        case err == nil:
+            return connect.NewResponse(&{{ qualify "google.golang.org/protobuf/types/known/emptypb" "Empty" }}{}), nil
+        case {{ .G.EntPackage.Ident "IsNotFound" | ident }}(err):
+            return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("not found: %w", err))
+        default:
+            return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("internal error: %w", err))
+    }
+{{ end }}
